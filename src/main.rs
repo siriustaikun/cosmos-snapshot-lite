@@ -4,7 +4,7 @@ use ocular::{cosmrs::{proto::cosmos::staking::v1beta1::{Validator, Delegation, D
 
 #[tokio::main]
 async fn main () {
-    execute_lite_snapshot().await.unwrap();
+    execute_lite_snapshot().await.expect("failed");
 }
 
 pub fn cosmos_client() -> QueryClient {
@@ -35,7 +35,9 @@ async fn execute_lite_snapshot () -> Result<Vec<DelegationResponse>> {
     let mut pr = page_request_iter();
     let mut validators: Vec<Validator> = vec![];
     loop {
+        println!("initialized");
         let mut vals = client.validators(&"", pr.next()).await?;
+        println!("vals loaded");
         if vals.validators.is_empty() {
             break;
         } else {
