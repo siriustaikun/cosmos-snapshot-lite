@@ -1,8 +1,5 @@
-use std::{iter::MapWhile, ops::RangeFrom};
-
 use eyre::Result;
-use ocular::{rpc::new_http_client, cosmrs::{Error, proto::cosmos::staking::v1beta1::Validator}, query::{StakingQueryClient, PageRequest}, QueryClient};
-
+use ocular::{cosmrs::{proto::cosmos::staking::v1beta1::{Validator, Delegation, DelegationResponse}}, query::{StakingQueryClient, PageRequest}, QueryClient};
 
 
 #[tokio::main]
@@ -10,10 +7,10 @@ async fn main () {
     execute_lite_snapshot().await.unwrap();
 }
 
-pub fn juno_client() -> QueryClient {
+pub fn cosmos_client() -> QueryClient {
     QueryClient::new(
-        "http://cosmoshub.strange.love:26657",
-        "http://cosmoshub.strange.love:9090",
+        "https://rpc-cosmoshub-ia.notional.ventures:443",
+        "https://grpc-cosmoshub-ia.notional.ventures:443",
     )
     .expect("failed to construct Cosmos client")
 }
@@ -27,24 +24,48 @@ fn page_request_iter () -> impl Iterator<Item=PageRequest> {
         reverse: false,
     };
     (0..).map_while(move |n| {
-        pr.offset += n * pr.limit;
+        pr.offset = n * pr.limit;
         Some(pr.clone())
     })
 }
 
-async fn execute_lite_snapshot () -> Result<()> {
-    let mut client = juno_client();
+async fn execute_lite_snapshot () -> Result<Vec<DelegationResponse>> {
+    let mut client = cosmos_client();
     
     let mut pr = page_request_iter();
     let mut validators: Vec<Validator> = vec![];
     loop {
         let mut vals = client.validators(&"", pr.next()).await?;
-        validators.append(vals.validators.as_mut());
         if vals.validators.is_empty() {
             break;
+        } else {
+            validators.append(vals.validators.as_mut());
         }
     }
-    let all_vals: String = validators.into_iter().map(|v| v.operator_address).collect::<Vec<String>>().join("\n");
-    println!("{}", all_vals);
-    Ok(())
+    
+    let mut delegations: Vec<DelegationResponse> = vec![];
+    for val in validators {
+        let val = val.clone();
+        let mut val_dels = load_delegations(&val).await?;
+        delegations.append(&mut val_dels);
+    }
+    Ok(delegations)
+}
+
+async fn load_delegations (val: &Validator) -> Result<Vec<DelegationResponse>> {
+    let mut client = cosmos_client();
+    let mut pr = page_request_iter();
+    let mut delegations: Vec<DelegationResponse> = vec![];
+    loop {
+        println!("loading dels");
+        let mut res = client.validator_delegations(&val.operator_address, pr.next()).await?;
+        if res.delegation_responses.is_empty() {
+            println!("exiting");
+            break;
+        } else {
+            delegations.append(res.delegation_responses.as_mut());
+            println!("total delegations: {}", delegations.len());
+        }
+    }
+    Ok(delegations)
 }
